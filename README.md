@@ -25,7 +25,7 @@ python -m ipod_organizer tui
 - `create-playlist`, `add-to-playlist`: manage playlists.
 - `play`: play a track directly from the library.
 - `tui`: launch the interactive terminal UI for queueing and playback control.
-- `gui`: open the tabbed desktop interface for browsing, playback, and Rockbox exports.
+- `gui`: open the desktop interface focused on Rockbox exporting and bundling utilities.
 - `export-rockbox`: generate `.m3u` playlists (one per folder) ready for copying onto Rockbox devices.
 - `organize-rockbox`: copy or move audio into `Artist/Album` (optionally `Genre/Artist/Album`) folders.
 - `bundle-rockbox`: stage albums and playlist downloads into `Music/` + `Playlists/` so you can drag them straight onto a Rockbox device.

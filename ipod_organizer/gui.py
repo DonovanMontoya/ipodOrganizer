@@ -23,7 +23,6 @@ except ImportError as exc:  # pragma: no cover
     raise RuntimeError("PyQt6 is required for the GUI but not available. Install with: pip install PyQt6") from exc
 
 from .library import MusicLibrary, Track
-from .playback import MusicPlayer
 from .rockbox import ExportResult, export_m3u_playlists, organize_music_collection
 
 
@@ -820,12 +819,16 @@ class LibraryTab(QWidget):
 
     play_track = pyqtSignal(Track)
     queue_tracks = pyqtSignal(list)
+    scan_progress = pyqtSignal(int, str)
+    scan_finished = pyqtSignal(int, object)
 
     def __init__(self, library: MusicLibrary, main_window=None, parent=None):
         super().__init__(parent)
         self.library = library
         self.main_window = main_window
         self.tracks_by_id = {}
+        self.scan_progress.connect(self._handle_scan_progress)
+        self.scan_finished.connect(self._handle_scan_finished)
         self._setup_ui()
         self.load_playlists()
         self.refresh_tracks()
@@ -1003,12 +1006,14 @@ class LibraryTab(QWidget):
 
     def _on_playlist_selected(self, index: int):
         """Handle playlist selection."""
-        if index == 0:
+        item = self.playlist_list.item(index) if index >= 0 else None
+        if index <= 0 or item is None:
             self.refresh_tracks()
-        else:
-            item_text = self.playlist_list.item(index).text()
-            playlist_name = item_text.replace("🎵 ", "")
-            self._load_playlist_tracks(playlist_name)
+            return
+
+        item_text = item.text()
+        playlist_name = item_text.replace("🎵 ", "")
+        self._load_playlist_tracks(playlist_name)
 
     def _load_playlist_tracks(self, name: str):
         """Load tracks from a playlist."""
@@ -1085,7 +1090,8 @@ class LibraryTab(QWidget):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
         if folder:
             if self.main_window:
-                self.main_window.show_loading("Counting files...", determinate=True)
+                self.main_window.show_loading("Scanning library...", determinate=True)
+                self.main_window.update_progress(0, "Counting files...")
 
             # Run in separate thread to avoid blocking UI
             def scan():
@@ -1099,11 +1105,7 @@ class LibraryTab(QWidget):
                             total_files += 1
 
                     if total_files == 0:
-                        def show_no_files():
-                            if self.main_window:
-                                self.main_window.hide_loading()
-                                self.main_window.show_toast("No audio files found", "warning")
-                        QTimer.singleShot(0, show_no_files)
+                        self.scan_finished.emit(0, ("warning", "No audio files found"))
                         return
 
                     # Now scan with progress
@@ -1125,37 +1127,50 @@ class LibraryTab(QWidget):
                         processed += 1
                         progress = int((processed / total_files) * 100)
 
-                        # Update progress on main thread (throttle to avoid flooding)
                         if progress != last_update or processed == total_files:
                             last_update = progress
-                            def update_ui(p=progress, proc=processed, tot=total_files):
-                                if self.main_window:
-                                    self.main_window.update_progress(p, f"Scanning... {proc}/{tot}")
-                            QTimer.singleShot(0, update_ui)
-
-                            # Give UI time to update
-                            import time
-                            time.sleep(0.01)
+                            self.scan_progress.emit(progress, f"Scanning... {processed}/{total_files}")
 
                     count = len(added_tracks)
 
-                    # Create a proper closure to ensure count is captured
-                    def hide_and_finish():
-                        if self.main_window:
-                            self.main_window.hide_loading()
-                        self._after_scan(count)
-                    QTimer.singleShot(0, hide_and_finish)
+                    self.scan_finished.emit(count, None)
                 except Exception as e:
-                    # Ensure loading is hidden even on error
                     error_msg = str(e)
-                    def hide_and_error():
-                        if self.main_window:
-                            self.main_window.hide_loading()
-                            self.main_window.show_toast(f"Scan failed: {error_msg}", "error", 5000)
-                    QTimer.singleShot(0, hide_and_error)
+                    self.scan_finished.emit(0, ("error", error_msg))
 
             thread = threading.Thread(target=scan, daemon=True)
             thread.start()
+
+    def _handle_scan_progress(self, percent: int, message: str) -> None:
+        """Update scan progress."""
+        if self.main_window:
+            self.main_window.update_progress(percent, message)
+
+    def _handle_scan_finished(self, count: int, outcome) -> None:
+        """Finalize scan overlay and toast."""
+        severity = None
+        message = None
+        if isinstance(outcome, tuple):
+            severity, message = outcome
+        elif outcome:
+            severity = "error"
+            message = str(outcome)
+
+        if self.main_window:
+            if severity == "error":
+                self.main_window.update_progress(0, "Scan failed")
+            elif severity == "warning":
+                self.main_window.update_progress(0, message or "No audio files found")
+            else:
+                self.main_window.update_progress(100, "Scan complete")
+            self.main_window.hide_loading()
+
+        if severity:
+            if self.main_window and message:
+                level = "warning" if severity == "warning" else "error"
+                self.main_window.show_toast(message, level, 5000 if severity == "error" else 4000)
+        else:
+            self._after_scan(count)
 
     def _after_scan(self, count: int):
         """Called after scan completes."""
@@ -1325,12 +1340,20 @@ class RockboxTab(QWidget):
 
     bundle_progress = pyqtSignal(int, str)
     bundle_finished = pyqtSignal(object, object, object)
+    export_progress = pyqtSignal(int, str)
+    export_finished = pyqtSignal(object, object)
+    organize_progress = pyqtSignal(int, str)
+    organize_finished = pyqtSignal(object, object)
 
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
         self.main_window = main_window
         self.bundle_progress.connect(self._handle_bundle_progress)
         self.bundle_finished.connect(self._after_bundle)
+        self.export_progress.connect(self._handle_export_progress)
+        self.export_finished.connect(self._handle_export_finished)
+        self.organize_progress.connect(self._handle_organize_progress)
+        self.organize_finished.connect(self._handle_organize_finished)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1648,6 +1671,21 @@ class RockboxTab(QWidget):
         if self.main_window:
             self.main_window.update_progress(percent, message)
 
+    def _handle_export_progress(self, percent: int, message: str) -> None:
+        """Update export progress."""
+        if self.main_window:
+            self.main_window.update_progress(percent, message)
+
+    def _handle_export_finished(self, results, error) -> None:
+        """Hide overlay and defer to logger for export results."""
+        if self.main_window:
+            if error:
+                self.main_window.update_progress(0, "Playlist export failed")
+            else:
+                self.main_window.update_progress(100, "Playlists ready")
+            self.main_window.hide_loading()
+        self._after_export(results, error)
+
     def _after_bundle(self, result, error, dest_path: Optional[Path]):
         """Handle bundle completion."""
         if self.main_window:
@@ -1701,6 +1739,21 @@ class RockboxTab(QWidget):
             if self.main_window:
                 self.main_window.show_toast("Rockbox bundle ready to copy", "success", 4000)
 
+    def _handle_organize_progress(self, percent: int, message: str) -> None:
+        """Update organize progress."""
+        if self.main_window:
+            self.main_window.update_progress(percent, message)
+
+    def _handle_organize_finished(self, results, error) -> None:
+        """Hide overlay and log organize outcome."""
+        if self.main_window:
+            if error:
+                self.main_window.update_progress(0, "Organize failed")
+            else:
+                self.main_window.update_progress(100, "Library organized")
+            self.main_window.hide_loading()
+        self._after_organize(results, error)
+
     def _browse_folder(self, line_edit: QLineEdit):
         """Browse for a folder."""
         folder = QFileDialog.getExistingDirectory(self, "Select Folder")
@@ -1720,6 +1773,7 @@ class RockboxTab(QWidget):
 
         if self.main_window:
             self.main_window.show_loading("Generating playlists...", determinate=True)
+            self.main_window.update_progress(0, "Preparing playlist export...")
 
         def export():
             try:
@@ -1743,11 +1797,7 @@ class RockboxTab(QWidget):
                 total_dirs = len(directories)
 
                 if total_dirs == 0:
-                    def show_no_dirs():
-                        if self.main_window:
-                            self.main_window.hide_loading()
-                            self.main_window.show_toast("No directories found", "warning")
-                    QTimer.singleShot(0, show_no_dirs)
+                    self.export_finished.emit(None, "No directories found")
                     return
 
                 # Process each directory with progress
@@ -1770,32 +1820,13 @@ class RockboxTab(QWidget):
                     processed += 1
                     progress = int((processed / total_dirs) * 100)
 
-                    # Update progress on main thread (throttle to avoid flooding)
                     if progress != last_update or processed == total_dirs:
                         last_update = progress
-                        def update_ui(p=progress, proc=processed, tot=total_dirs):
-                            if self.main_window:
-                                self.main_window.update_progress(p, f"Exporting playlists... {proc}/{tot}")
-                        QTimer.singleShot(0, update_ui)
+                        self.export_progress.emit(progress, f"Exporting playlists... {processed}/{total_dirs}")
 
-                        # Give UI time to update
-                        import time
-                        time.sleep(0.01)
-
-                # Create a proper closure to ensure results is captured
-                def hide_and_finish():
-                    if self.main_window:
-                        self.main_window.hide_loading()
-                    self._after_export(results, None)
-                QTimer.singleShot(0, hide_and_finish)
+                self.export_finished.emit(results, None)
             except Exception as e:
-                # Ensure loading is hidden even on error
-                error_msg = str(e)
-                def hide_and_error():
-                    if self.main_window:
-                        self.main_window.hide_loading()
-                    self._after_export(None, error_msg)
-                QTimer.singleShot(0, hide_and_error)
+                self.export_finished.emit(None, str(e))
 
         thread = threading.Thread(target=export, daemon=True)
         thread.start()
@@ -1827,7 +1858,8 @@ class RockboxTab(QWidget):
         genre = self.org_genre.isChecked()
 
         if self.main_window:
-            self.main_window.show_loading("Counting files...", determinate=True)
+            self.main_window.show_loading("Organizing collection...", determinate=True)
+            self.main_window.update_progress(0, "Scanning files...")
 
         def organize():
             try:
@@ -1853,17 +1885,12 @@ class RockboxTab(QWidget):
                 total_files = len(audio_files)
 
                 if total_files == 0:
-                    def show_no_files():
-                        if self.main_window:
-                            self.main_window.hide_loading()
-                            self.main_window.show_toast("No audio files found", "warning")
-                    QTimer.singleShot(0, show_no_files)
+                    self.organize_finished.emit([], "No audio files found")
                     return
 
                 # Now organize with progress
                 results = []
                 processed = 0
-                last_update = 0
 
                 for file_path in audio_files:
                     try:
@@ -1909,32 +1936,11 @@ class RockboxTab(QWidget):
                     processed += 1
                     progress = int((processed / total_files) * 100)
 
-                    # Update progress on main thread (throttle to avoid flooding)
-                    if progress != last_update or processed == total_files:
-                        last_update = progress
-                        def update_ui(p=progress, proc=processed, tot=total_files):
-                            if self.main_window:
-                                self.main_window.update_progress(p, f"Organizing... {proc}/{tot}")
-                        QTimer.singleShot(0, update_ui)
+                    self.organize_progress.emit(progress, f"Organizing... {processed}/{total_files}")
 
-                        # Give UI time to update
-                        import time
-                        time.sleep(0.01)
-
-                # Create a proper closure to ensure results is captured
-                def hide_and_finish():
-                    if self.main_window:
-                        self.main_window.hide_loading()
-                    self._after_organize(results, None)
-                QTimer.singleShot(0, hide_and_finish)
+                self.organize_finished.emit(results, None)
             except Exception as e:
-                # Ensure loading is hidden even on error
-                error_msg = str(e)
-                def hide_and_error():
-                    if self.main_window:
-                        self.main_window.hide_loading()
-                    self._after_organize(None, error_msg)
-                QTimer.singleShot(0, hide_and_error)
+                self.organize_finished.emit(None, str(e))
 
         thread = threading.Thread(target=organize, daemon=True)
         thread.start()
@@ -1972,19 +1978,14 @@ class MainWindow(QMainWindow):
     def __init__(self, library: MusicLibrary):
         super().__init__()
         self.library = library
-        self.player = MusicPlayer(on_track_start=lambda t: library.record_play(t.id or 0))
 
         self.setWindowTitle("iPod Organizer")
         self.setMinimumSize(1200, 800)
 
         self._setup_ui()
-        self._setup_timer()
 
         # Loading overlay
         self.loading_overlay = LoadingOverlay(self)
-
-        if not self.player.has_audio_output:
-            self.show_toast("Audio backend unavailable - playback will be limited", "warning", 5000)
 
     def _setup_ui(self):
         """Setup the main UI."""
@@ -2000,50 +2001,12 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
 
-        # Library tab
-        self.library_tab = LibraryTab(self.library, self)
-        self.library_tab.play_track.connect(self._play_track)
-        self.library_tab.queue_tracks.connect(self._queue_tracks)
-
-        # Queue tab
-        self.queue_tab = QueueTab(self.player, self)
-
         # Rockbox tab
         self.rockbox_tab = RockboxTab(self)
 
-        self.tabs.addTab(self.library_tab, "Library")
-        self.tabs.addTab(self.queue_tab, "Queue")
         self.tabs.addTab(self.rockbox_tab, "Rockbox")
 
-        # Now playing bar
-        self.now_playing = NowPlayingBar(self.player, self.library)
-
         layout.addWidget(self.tabs)
-        layout.addWidget(self.now_playing)
-
-    def _setup_timer(self):
-        """Setup update timer."""
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self._update_ui)
-        self.timer.start(250)
-
-    def _update_ui(self):
-        """Update UI elements."""
-        self.now_playing.update_display()
-        self.queue_tab.update_queue()
-
-    def _play_track(self, track: Track):
-        """Play a track."""
-        self.player.play_now(track)
-
-    def _queue_tracks(self, tracks: list[Track]):
-        """Queue tracks."""
-        self.player.queue_tracks(tracks)
-
-    def closeEvent(self, event):
-        """Handle close event."""
-        self.player.shutdown()
-        event.accept()
 
     def show_toast(self, message: str, toast_type: str = "info", duration: int = 3000):
         """Show a toast notification."""
