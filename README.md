@@ -1,71 +1,131 @@
 # iPod Organizer
 
-A small Python music player and organizer. It scans folders for audio files, keeps a searchable library, builds playlists, and plays songs with a minimal terminal interface.
+iPod Organizer is a Python music library manager with terminal and desktop interfaces. It scans folders for audio, stores metadata in SQLite, offers quick searching and playback, and exports playlists ready for Rockbox devices.
 
-## Features
-- Organize tracks into a lightweight SQLite library with playlists and play counts.
-- Import MP3/FLAC/WAV/OGG files from any folder.
-- Play music with `pygame` (falls back safely if audio support is missing).
-- Terminal user interface for searching the library, queueing songs, and controlling playback.
-- Configurable persistent library stored in `~/.ipod_organizer/`.
+## Table of Contents
+1. [Overview](#overview)
+2. [Feature Highlights](#feature-highlights)
+3. [Quick Start](#quick-start)
+4. [Usage Guide](#usage-guide)
+5. [Rockbox Workflows](#rockbox-workflows)
+6. [Configuration](#configuration)
+7. [Project Structure](#project-structure)
+8. [Development](#development)
+9. [Troubleshooting](#troubleshooting)
 
-## Getting Started
+## Overview
+- SQLite-backed music library with track metadata, playlists, and play counts.
+- Terminal UI (TUI) for fast library searches, queueing, and playback.
+- Tk desktop app that focuses on Rockbox export and bundling helpers.
+- Uses `pygame` for playback with graceful fallbacks when audio backends are missing.
+
+## Feature Highlights
+- Scan folders of MP3, FLAC, WAV, or OGG files into a persistent database under `~/.ipod_organizer/`.
+- View and manage playlists, including creation, editing, and track ordering.
+- Play tracks directly or through interactive queues in the TUI.
+- Export Rockbox-ready playlists and reorganize libraries into device-friendly layouts.
+- Bundle albums and playlists so they can be copied straight to a Rockbox device.
+
+## Quick Start
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+
+# Import tracks and launch the terminal UI
 python -m ipod_organizer scan /path/to/music
 python -m ipod_organizer tui
 ```
 
-## CLI Commands
-- `scan`: walk a directory and add audio files to the library.
-- `list-tracks`: show tracks with optional filtering.
-- `list-playlists`: enumerate playlists and contents.
-- `create-playlist`, `add-to-playlist`: manage playlists.
-- `play`: play a track directly from the library.
-- `tui`: launch the interactive terminal UI for queueing and playback control.
-- `gui`: open the desktop interface focused on Rockbox exporting and bundling utilities.
-- `export-rockbox`: generate `.m3u` playlists (one per folder) ready for copying onto Rockbox devices.
-- `organize-rockbox`: copy or move audio into `Artist/Album` (optionally `Genre/Artist/Album`) folders.
-- `bundle-rockbox`: stage albums and playlist downloads into `Music/` + `Playlists/` so you can drag them straight onto a Rockbox device.
+Run `python -m ipod_organizer --help` for global options or `python -m ipod_organizer <command> --help` for command-specific flags.
 
-Run `python -m ipod_organizer --help` to review all options, or launch the GUI directly:
+## Usage Guide
+### Core CLI Commands
+- `scan <path>`: Walk a filesystem path and add audio files to the library.
+- `list-tracks`: Show tracks with optional filters (artist, album, playlist).
+- `list-playlists`: Display playlists and their contents.
+- `create-playlist <name>` / `add-to-playlist <playlist> <track>`: Manage playlists from the CLI.
+- `play <track-id or search>`: Play a track immediately via the playback engine.
+- `tui`: Launch the interactive terminal interface.
+- `gui`: Launch the Tk desktop interface with Rockbox utilities and quick actions.
+
+### Terminal UI (TUI)
+The TUI provides fast keyboard-driven access to searching, queue management, and playback control. Launch it with:
+```bash
+python -m ipod_organizer tui
+```
+
+### Desktop UI (GUI)
+The GUI focuses on export helpers, bundling albums/playlists, and monitoring queue state. Start it with:
 ```bash
 python -m ipod_organizer gui
 ```
 
-### Rockbox Playlist Export
-```
-python -m ipod_organizer export-rockbox /path/to/flacs --recursive --destination /path/to/playlists
-```
-- Without `--destination`, playlists are written beside the music.
-- Use `--recursive` to mirror subdirectories, producing one playlist per folder.
-- Override which files are included with `--extensions .flac,.mp3`.
+## Rockbox Workflows
+Rockbox helpers live under the `rockbox` CLI namespace and in the GUI Rockbox tab.
 
-### Rockbox Library Sorting
+### Export Playlists
+```bash
+python -m ipod_organizer export-rockbox /path/to/music \
+    --recursive \
+    --destination /path/to/playlists \
+    --extensions .flac,.mp3
 ```
-python -m ipod_organizer organize-rockbox /path/to/flacs /path/to/rockbox/music --include-genre --move
-```
-- Defaults to copying; pass `--move` to relocate files once sorted.
-- Add `--include-genre` for a `Genre/Artist/Album` hierarchy.
+- Writes `.m3u` playlists per folder, mirroring folder structure when `--recursive` is used.
+- Omitting `--destination` writes playlists alongside the source audio.
 
-### Rockbox Bundling
-Use the Rockbox tab in the GUI (Bundle card) or run:
+### Organize Library
+```bash
+python -m ipod_organizer organize-rockbox /source /rockbox/music \
+    --include-genre \
+    --move
 ```
-python -m ipod_organizer bundle-rockbox --albums /path/to/albums --playlists /path/to/playlists /path/to/output
+- Defaults to copying audio into `Artist/Album` folders; `--include-genre` adds a genre level.
+- Pass `--move` to relocate audio instead of copying.
+
+### Bundle Albums & Playlists
+```bash
+python -m ipod_organizer bundle-rockbox \
+    --albums /path/to/albums \
+    --playlists /path/to/playlists \
+    /path/to/output
 ```
-- Produces `Music/` and `Playlists/` folders you can drag directly onto the device.
-- Reuses album tracks when playlists reference them, copying only what is missing.
-- Add `--move-albums` or `--move-playlists` to relocate files instead of copying.
+- Produces `Music/` and `Playlists/` directories ready for drag-and-drop.
+- Reuses album tracks referenced by playlists, copying only missing files.
+- Add `--move-albums` or `--move-playlists` to relocate instead of copy.
+
+## Configuration
+- Application data lives under `~/.ipod_organizer/` (see `ipod_organizer/config.py`).
+- Key files: `library.db` (SQLite library), `config.json` (optional overrides), `logs/`.
+- Adjust logging by setting the `IPOD_ORGANIZER_LOG_LEVEL` environment variable or editing `config.json`.
+
+## Project Structure
+```
+ipod_organizer/
+├── __main__.py       # Enables `python -m ipod_organizer`
+├── cli.py            # Click-based CLI entrypoints
+├── config.py         # Application constants and directories
+├── database.py       # SQLite wrapper and schema helpers
+├── library.py        # Track import, scanning, and playlist orchestration
+├── playback.py       # pygame playback loop with fallbacks
+├── gui.py            # Tk desktop interface
+└── rockbox.py        # Rockbox export and bundling utilities
+tests/
+└── test_*.py         # Pytest suites mirroring module names
+```
 
 ## Development
 ```bash
 pip install -r requirements-dev.txt
-pytest
+pytest --maxfail=1
 ```
+- Follow PEP 8 and prefer `lower_snake_case` function/variable names.
+- Add type hints and dataclasses where appropriate (see `library.Track`).
+- Extend tests under `tests/test_<module>.py`, modeling state with fixtures like `tmp_path`.
+- Run `pytest` before submitting changes; include coverage for new code paths.
 
-## Notes
-- Audio playback relies on `pygame`. Install a backend (e.g., SDL mixer) if required on your platform.
-- The library file lives under `~/.ipod_organizer/library.db`. Delete it to start fresh.
-- The GUI uses Tk (ships with standard Python). Install the `python3-tk` package on Linux if it's missing.
+## Troubleshooting
+- Playback requires `pygame` and an audio backend (SDL mixer). Install platform packages if playback is silent.
+- On Linux, install `python3-tk` if launching `gui` raises a Tk dependency error.
+- Delete `~/.ipod_organizer/library.db` if you need to reset the library (metadata will be rebuilt on the next scan).
+- For verbose logging, run commands with `IPOD_ORGANIZER_LOG_LEVEL=DEBUG`.
