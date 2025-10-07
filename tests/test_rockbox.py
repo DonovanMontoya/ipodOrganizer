@@ -169,6 +169,32 @@ def test_organize_music_uses_filename_track_number(mock_tags, tmp_path):
 
 
 @patch("ipod_organizer.rockbox._read_tags")
+def test_organize_music_uses_primary_artist(mock_tags, tmp_path):
+    source = tmp_path / "unsorted"
+    source.mkdir()
+    track = source / "track.flac"
+    track.write_bytes(b"audio")
+
+    destination = tmp_path / "sorted"
+
+    mock_tags.return_value = {
+        "artist": "Taylor Swift & Ice Spice",
+        "album": "Midnights",
+        "title": "Karma",
+        "track_number": "13",
+        "genre": None,
+    }
+
+    results = organize_music_collection(source, destination, include_genre=False, move=False, recursive=False)
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.destination
+    assert result.destination.parent == destination / "Taylor Swift" / "Midnights"
+    assert result.destination.name.startswith("13 - Karma")
+
+
+@patch("ipod_organizer.rockbox._read_tags")
 def test_bundle_for_rockbox_combines_albums_and_playlists(mock_tags, tmp_path):
     albums_root = tmp_path / "albums"
     albums_root.mkdir()

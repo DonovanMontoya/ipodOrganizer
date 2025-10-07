@@ -430,10 +430,17 @@ def _format_track_number(value: Optional[str], fallback_stem: Optional[str] = No
     return "00"
 
 
+def _primary_artist(name: str) -> str:
+    """Return the primary artist from a potentially multi-artist string."""
+    separators = re.compile(r"\s*(?:;|,|/|\\|&| feat\.?| featuring | ft\.?| with | and | x )\s*", re.IGNORECASE)
+    primary = separators.split(name, maxsplit=1)[0] if name else name
+    return _safe_component(primary or "Unknown Artist")
+
+
 def _derive_components(
     file_path: Path, tags: dict[str, Optional[str]], include_genre: bool
 ) -> dict[str, str]:
-    artist = _safe_component(tags.get("artist") or "Unknown Artist")
+    artist = _primary_artist(tags.get("artist") or "Unknown Artist")
     album = _safe_component(tags.get("album") or "Unknown Album")
     title = _safe_component(tags.get("title") or file_path.stem)
     track_no = _format_track_number(tags.get("track_number"), file_path.stem)

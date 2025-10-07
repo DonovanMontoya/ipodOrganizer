@@ -1368,32 +1368,31 @@ class RockboxTab(QWidget):
         layout.setSpacing(24)
 
         # Header
-        header = QLabel("Rockbox Utilities")
+        header = QLabel("Rockbox Toolkit")
         header.setFont(QFont("-apple-system", 20, QFont.Weight.Bold))
         header.setStyleSheet(f"color: {Colors.TEXT_PRIMARY};")
         layout.addWidget(header)
 
-        # Export section
-        layout.addWidget(self._create_export_section())
+        content_layout = QHBoxLayout()
+        content_layout.setSpacing(16)
 
-        # Bundle section
-        layout.addWidget(self._create_bundle_section())
+        primary_column = QVBoxLayout()
+        primary_column.setSpacing(16)
+        secondary_column = QVBoxLayout()
+        secondary_column.setSpacing(16)
 
-        # Organize section
-        layout.addWidget(self._create_organize_section())
+        primary_column.addWidget(self._create_bundle_section())
+        primary_column.addWidget(self._create_organize_section())
+        primary_column.addStretch()
 
-        # Log
-        log_label = QLabel("Export Log")
-        log_label.setFont(QFont("-apple-system", 14, QFont.Weight.DemiBold))
-        log_label.setStyleSheet(f"color: {Colors.TEXT_PRIMARY};")
+        secondary_column.addWidget(self._create_export_section())
+        secondary_column.addWidget(self._create_activity_log())
+        secondary_column.addStretch()
 
-        self.log_output = QTextEdit()
-        self.log_output.setReadOnly(True)
-        self.log_output.setMaximumHeight(200)
+        content_layout.addLayout(primary_column, 2)
+        content_layout.addLayout(secondary_column, 1)
 
-        layout.addWidget(log_label)
-        layout.addWidget(self.log_output)
-        layout.addStretch()
+        layout.addLayout(content_layout)
 
         scroll.setWidget(container)
 
@@ -1599,6 +1598,34 @@ class RockboxTab(QWidget):
         layout.addWidget(self.org_move)
         layout.addWidget(self.org_genre)
         layout.addWidget(organize_btn)
+
+        return card
+
+    def _create_activity_log(self) -> QWidget:
+        """Create logging panel."""
+        card = QFrame()
+        card.setObjectName("logCard")
+        card.setStyleSheet(f"""
+            #logCard {{
+                background-color: {Colors.SURFACE};
+                border-radius: 12px;
+                padding: 20px;
+            }}
+        """)
+
+        layout = QVBoxLayout(card)
+        layout.setSpacing(12)
+
+        title = QLabel("Activity Log")
+        title.setFont(QFont("-apple-system", 16, QFont.Weight.DemiBold))
+        title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY};")
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setMinimumHeight(220)
+
+        layout.addWidget(title)
+        layout.addWidget(self.log_output)
 
         return card
 
