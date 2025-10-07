@@ -144,6 +144,31 @@ def test_organize_music_sanitizes_problematic_tags(mock_tags, tmp_path):
 
 
 @patch("ipod_organizer.rockbox._read_tags")
+def test_organize_music_uses_filename_track_number(mock_tags, tmp_path):
+    source = tmp_path / "unsorted"
+    source.mkdir()
+    track = source / "03 - Mystery Song.flac"
+    track.write_bytes(b"audio")
+
+    destination = tmp_path / "sorted"
+
+    mock_tags.return_value = {
+        "artist": "Unknown Artist",
+        "album": "Mysteries",
+        "title": "Mystery Song",
+        "track_number": None,
+        "genre": None,
+    }
+
+    results = organize_music_collection(source, destination, include_genre=False, move=False, recursive=False)
+
+    assert len(results) == 1
+    result = results[0]
+    assert result.destination
+    assert result.destination.name.startswith("03 - Mystery Song")
+
+
+@patch("ipod_organizer.rockbox._read_tags")
 def test_bundle_for_rockbox_combines_albums_and_playlists(mock_tags, tmp_path):
     albums_root = tmp_path / "albums"
     albums_root.mkdir()
@@ -192,7 +217,12 @@ def test_bundle_for_rockbox_combines_albums_and_playlists(mock_tags, tmp_path):
 
     mock_tags.side_effect = _fake_tags
 
-    result = bundle_for_rockbox([albums_root], [playlists_root], dest)
+    progress_updates = []
+
+    def _progress(done, total, message):
+        progress_updates.append((done, total, message))
+
+    result = bundle_for_rockbox([albums_root], [playlists_root], dest, progress_callback=_progress)
 
     music_dir = dest / "Music"
     playlists_dir = dest / "Playlists"
@@ -213,3 +243,6 @@ def test_bundle_for_rockbox_combines_albums_and_playlists(mock_tags, tmp_path):
     ]
 
     assert result.playlist_results[0].missing_sources == []
+    assert progress_updates[0][0] == 0
+    assert progress_updates[-1][0] == progress_updates[-1][1]
+    assert progress_updates[-1][2] == "Rockbox bundle complete"

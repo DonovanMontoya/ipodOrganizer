@@ -193,6 +193,7 @@ def bundle_for_rockbox(
         move_albums: Move album files instead of copying them.
         move_playlists: Move playlist files instead of copying them when missing from albums.
         extensions: Audio file extensions to include.
+        progress_callback: Optional callback receiving (completed, total, message).
     """
 
     album_paths = [Path(p).expanduser().resolve() for p in (album_dirs or [])]
@@ -315,7 +316,7 @@ def bundle_for_rockbox(
                             components=components,
                         )
                         music_results.append(result)
-                            track_index[key] = dest_path
+                        track_index[key] = dest_path
                     rel_path = Path(os.path.relpath(dest_path, playlists_root)).as_posix()
                     handle.write(rel_path + "\n")
                     written += 1
@@ -417,13 +418,16 @@ def _safe_component(text: str) -> str:
     return cleaned or "Unknown"
 
 
-def _format_track_number(value: Optional[str]) -> str:
-    if not value:
-        return "00"
-    match = re.match(r"(\\d+)", value)
-    if not match:
-        return "00"
-    return match.group(1).zfill(2)
+def _format_track_number(value: Optional[str], fallback_stem: Optional[str] = None) -> str:
+    if value:
+        match = re.match(r"(\d+)", value)
+        if match:
+            return match.group(1).zfill(2)
+    if fallback_stem:
+        match = re.match(r"^\s*(\d{1,3})\b", fallback_stem)
+        if match:
+            return match.group(1).zfill(2)
+    return "00"
 
 
 def _derive_components(
@@ -432,7 +436,7 @@ def _derive_components(
     artist = _safe_component(tags.get("artist") or "Unknown Artist")
     album = _safe_component(tags.get("album") or "Unknown Album")
     title = _safe_component(tags.get("title") or file_path.stem)
-    track_no = _format_track_number(tags.get("track_number"))
+    track_no = _format_track_number(tags.get("track_number"), file_path.stem)
     raw_genre = tags.get("genre")
     if include_genre:
         genre = _safe_component(raw_genre or "Unknown Genre")

@@ -1323,9 +1323,14 @@ class QueueTab(QWidget):
 class RockboxTab(QWidget):
     """Rockbox export and organization tab."""
 
+    bundle_progress = pyqtSignal(int, str)
+    bundle_finished = pyqtSignal(object, object, object)
+
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
         self.main_window = main_window
+        self.bundle_progress.connect(self._handle_bundle_progress)
+        self.bundle_finished.connect(self._after_bundle)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1596,24 +1601,28 @@ class RockboxTab(QWidget):
 
         if self.main_window:
             self.main_window.show_loading("Bundling for Rockbox...", determinate=True)
+            self.main_window.update_progress(0, "Preparing Rockbox bundle...")
 
         dest_path = Path(dest_root).expanduser().resolve()
 
         def bundle():
             try:
-                from .rockbox import bundle_for_rockbox  # noqa: F401
+                from .rockbox import bundle_for_rockbox
 
                 album_dirs = [Path(album_root).expanduser()] if album_root else None
                 playlist_dirs = [Path(playlist_root).expanduser()] if playlist_root else None
 
                 def emit_progress(done: int, total: int, message: str) -> None:
-                    percent = int((done / total) * 100) if total else 0
+                    if total:
+                        percent = int((done / total) * 100)
+                        if done >= total:
+                            percent = 100
+                        elif done > 0 and percent == 0:
+                            percent = 1
+                    else:
+                        percent = 0
 
-                    def update():
-                        if self.main_window:
-                            self.main_window.update_progress(percent, message)
-
-                    QTimer.singleShot(0, update)
+                    self.bundle_progress.emit(percent, message)
 
                 result = bundle_for_rockbox(
                     album_dirs,
@@ -1625,27 +1634,26 @@ class RockboxTab(QWidget):
                     progress_callback=emit_progress,
                 )
 
-                def finish():
-                    if self.main_window:
-                        self.main_window.hide_loading()
-                    self._after_bundle(result, None, dest_path)
-
-                QTimer.singleShot(0, finish)
+                self.bundle_finished.emit(result, None, dest_path)
             except Exception as exc:  # pragma: no cover - defensive
                 logger.exception("Failed to bundle for Rockbox: %s", exc)
 
-                def fail():
-                    if self.main_window:
-                        self.main_window.hide_loading()
-                    self._after_bundle(None, str(exc), dest_path)
-
-                QTimer.singleShot(0, fail)
+                self.bundle_finished.emit(None, str(exc), dest_path)
 
         thread = threading.Thread(target=bundle, daemon=True)
         thread.start()
 
+    def _handle_bundle_progress(self, percent: int, message: str) -> None:
+        """Update progress bar safely on the UI thread."""
+        if self.main_window:
+            self.main_window.update_progress(percent, message)
+
     def _after_bundle(self, result, error, dest_path: Optional[Path]):
         """Handle bundle completion."""
+        if self.main_window:
+            self.main_window.update_progress(100 if not error else 0, "Rockbox bundle ready" if not error else "Bundle failed")
+            self.main_window.hide_loading()
+
         if error:
             if self.main_window:
                 self.main_window.show_toast(f"Bundle failed: {error}", "error", 5000)
@@ -1864,7 +1872,7 @@ class RockboxTab(QWidget):
                         album = _safe_component(tags.get("album") or "Unknown Album")
                         title = _safe_component(tags.get("title") or file_path.stem)
                         genre_tag = _safe_component(tags.get("genre") or "Unknown Genre") if genre else None
-                        track_no = _format_track_number(tags.get("track_number"))
+                        track_no = _format_track_number(tags.get("track_number"), file_path.stem)
 
                         rel_parts = [artist, album]
                         if genre and genre_tag:
