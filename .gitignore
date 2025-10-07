@@ -8,3 +8,5 @@ build/
 dist/
 *.egg-info/
 tmp_*/
+AGENTS.md
+CLAUDE.md
